@@ -4,15 +4,20 @@
   box-sizing: border-box;
 }
 
+/* ── Base ───────────────────────────────────────────── */
 section {
   position: relative;
-  margin: 100px 0;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
 }
 
 .container {
   padding: 0 80px;
+  width: 100%;
 }
 
+/* ── Background video (always fixed, full screen) ───── */
 .backgroundVideo {
   width: 100%;
   height: 100vh;
@@ -20,143 +25,186 @@ section {
   top: 0;
   left: 0;
   z-index: 0;
+  pointer-events: none;
 }
 
 .backgroundVideo video {
   object-fit: cover;
   width: 100%;
-  height: 100vh;
+  height: 100%;
 }
 
+/* ── Outer wrapper ───────────────────────────────────── */
 .mainScrollingWrapper {
   position: relative;
-  min-height: 200vh; /* Ensure enough scroll space */
+  /* Height is dynamic: 100vh while locked; grows after sectionThree appears */
+  min-height: 100vh;
 }
 
-.sectionWrapper {
-  position: relative;
+/* ── Fixed overlay sections ──────────────────────────── */
+.fixed-section {
+  position: fixed;
   top: 0;
+  left: 0;
   width: 100%;
-  color: white;
+  height: 100vh;
   z-index: 1;
-  will-change: transform;
-  transition: transform 0.05s linear; /* Smooth but responsive */
+  transition: opacity 0.6s ease, transform 0.6s ease;
 }
 
+.fixed-section.visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.fixed-section.hidden {
+  opacity: 0;
+  transform: translateY(-40px);
+  pointer-events: none;
+}
+
+/* ── Section Three reveal ────────────────────────────── */
+.sectionThree-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sectionThree-enter {
+  z-index: 2;
+  opacity: 1;
+  animation: sectionThreeReveal 0.9s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  /* Need enough room above it for the fixed video to show before we scroll here */
+  margin-top: 100vh;
+}
+
+@keyframes sectionThreeReveal {
+  from {
+    opacity: 0;
+    transform: translateY(60px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Content ──────────────────────────────────────────── */
 .innerWrapper {
   display: flex;
   flex-direction: column;
   gap: 40px;
+  color: white;
+}
+
+.innerWrapper h1 {
+  font-size: clamp(2rem, 5vw, 4rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
 .glassCardsWrapper {
   display: flex;
   flex-direction: column;
-  gap: 40px;
-  max-width: 1000px;
+  gap: 24px;
+  max-width: 480px;
 }
 
 .glassCard {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.07);
   border-radius: 16px;
-  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
-  backdrop-filter: blur(5px);
-  -webkit-backdrop-filter: blur(5px);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  max-width: 400px;
-  width: 100%;
-  padding: 40px 20px;
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 32px 24px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 12px;
+  color: white;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
 }
 
-/* Optional: Add scroll snapping for better UX */
-html {
-  scroll-behavior: smooth;
+.glassCard:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
 }
 
-/* Ensure video stays behind content */
-.backgroundVideo {
-  pointer-events: none;
+.glassCard h2 {
+  font-size: 1.2rem;
+  font-weight: 600;
 }
 
+.glassCard p {
+  font-size: 0.95rem;
+  opacity: 0.75;
+  line-height: 1.6;
+}
 
-
-/* Progress indicator styles */
-.progress-indicator {
+/* ── Video progress bar ──────────────────────────────── */
+.videoProgressBar {
   position: fixed;
-  right: 40px;
-  top: 50%;
-  transform: translateY(-50%);
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.15);
+  z-index: 200;
+}
+
+.videoProgressFill {
+  height: 100%;
+  background: white;
+  transition: width 0.1s linear;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.6);
+}
+
+/* ── Scroll hint ──────────────────────────────────────── */
+.scrollHint {
+  position: fixed;
+  bottom: 48px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 100;
-}
-
-.checkpoints {
-  display: flex;
-  flex-direction: column;
-  gap: 40px;
-}
-
-.checkpoint {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.checkpoint-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.5);
-  transition: all 0.3s ease;
-}
-
-.checkpoint.active .checkpoint-dot {
-  background: white;
-  transform: scale(1.5);
-  box-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
-}
-
-.checkpoint-time {
-  font-size: 12px;
+  gap: 10px;
   color: rgba(255, 255, 255, 0.7);
-  font-family: monospace;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  animation: hintPulse 2s ease-in-out infinite;
 }
 
-.checkpoint.active .checkpoint-time {
-  color: white;
-  font-weight: bold;
+.scrollHintArrow {
+  width: 18px;
+  height: 18px;
+  border-right: 2px solid rgba(255, 255, 255, 0.6);
+  border-bottom: 2px solid rgba(255, 255, 255, 0.6);
+  transform: rotate(45deg);
+  animation: arrowBounce 1.4s ease-in-out infinite;
+}
+
+@keyframes hintPulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+@keyframes arrowBounce {
+  0%, 100% { transform: rotate(45deg) translateY(0); }
+  50% { transform: rotate(45deg) translateY(5px); }
 }
 
 .section-description {
-  font-size: 14px;
-  opacity: 0.8;
-  margin-top: -20px;
+  font-size: 13px;
+  opacity: 0.6;
+  margin-top: -24px;
   font-family: monospace;
+  letter-spacing: 0.04em;
 }
 
-/* Smooth section transitions */
-.hero {
-  transition: all 0.5s ease;
-}
-
-#sectionOne .glassCard {
-  transition: all 0.5s ease;
-}
-
-#sectionTwo .glassCard {
-  transition: all 0.5s ease;
-}
-
-#sectionThree .glassCard {
-  transition: all 0.5s ease;
-}
-
-/* Active section highlighting */
-.hero:target {
-  scroll-margin-top: 100px;
+/* ── Smooth scroll for sectionThree content ─────────── */
+html {
+  scroll-behavior: smooth;
 }

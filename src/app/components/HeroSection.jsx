@@ -1,419 +1,208 @@
 "use client";
 
-import studio from "@theatre/studio";
-import { getProject } from "@theatre/core";
-import { useEffect, useRef, useState } from "react";
-import gsap from "gsap";
-import { ScrollTrigger } from "gsap/ScrollTrigger";
+import { useEffect, useRef, useState, useCallback } from "react";
 import "./herosection.css";
 
-if (typeof window !== "undefined") {
-  studio.initialize();
-}
-
-const project = getProject("My Project");
-
 export default function HeroSection() {
-  const sectionWrapperRef = useRef(null);
   const videoRef = useRef(null);
-  const [activeSection, setActiveSection] = useState("sectionOne");
-  
-  // Checkpoints with their timeline positions (in seconds)
-  const checkpoints = [
-    { id: "sectionOne", videoTime: 0, label: "Start" },
-    { id: "sectionTwo", videoTime: 3, label: "First Checkpoint" },
-    { id: "sectionThree", videoTime: 5, label: "Second Checkpoint" }
-  ];
+  const [phase, setPhase] = useState("sectionOne"); // "sectionOne" | "playing" | "sectionThree"
+  const [videoProgress, setVideoProgress] = useState(0);
+  const [sectionThreeVisible, setSectionThreeVisible] = useState(false);
+
+  // Accumulated wheel delta — we use this to decide when to "trigger" the video
+  const wheelAccumRef = useRef(0);
+  const isPlayingRef = useRef(false);
+  const phaseRef = useRef("sectionOne");
+
+  const setPhaseSync = (p) => {
+    phaseRef.current = p;
+    setPhase(p);
+  };
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    // Register GSAP ScrollTrigger
-    gsap.registerPlugin(ScrollTrigger);
-
     const video = videoRef.current;
-    const sectionWrapper = sectionWrapperRef.current;
-    
-    if (!video || !sectionWrapper) return;
+    if (!video) return;
 
-    // Pause video initially
+    // Lock body scroll entirely
+    document.body.style.overflow = "hidden";
+    document.body.style.height = "100vh";
+
     video.pause();
     video.currentTime = 0;
 
-    // Create Theatre.js sheet for additional animations
-    const sheet = project.sheet("Scroll Sheet");
-    const obj = sheet.object("Animation Controls", {
-      scrollProgress: 0,
-      currentVideoTime: 0,
-      sectionProgress: 0
-    });
+    // ── Play the video straight through ──────────────────────────────────
+    const playVideo = () => {
+      if (isPlayingRef.current) return;
+      isPlayingRef.current = true;
+      setPhaseSync("playing");
 
-    // Calculate scroll ranges for each checkpoint
-    const getCheckpointScrollPositions = () => {
-      const sections = ["sectionOne", "sectionTwo", "sectionThree"];
-      const positions = {};
-      let totalScroll = 0;
-      
-      sections.forEach((sectionId, index) => {
-        const element = document.getElementById(sectionId);
-        if (element) {
-          const rect = element.getBoundingClientRect();
-          const scrollPosition = window.scrollY + rect.top;
-          positions[sectionId] = scrollPosition;
-          totalScroll = scrollPosition;
-        }
-      });
-      
-      return positions;
-    };
-
-    // Smooth scroll to checkpoint
-    const scrollToCheckpoint = (checkpointId, duration = 1) => {
-      const element = document.getElementById(checkpointId);
-      if (element) {
-        element.scrollIntoView({ 
-          behavior: 'smooth', 
-          block: 'start' 
-        });
-      }
-    };
-
-    // Update active section based on video time
-    const updateActiveSection = (videoTime) => {
-      if (videoTime >= 0 && videoTime < 3) {
-        setActiveSection("sectionOne");
-      } else if (videoTime >= 3 && videoTime < 5) {
-        setActiveSection("sectionTwo");
-      } else if (videoTime >= 5) {
-        setActiveSection("sectionThree");
-      }
-    };
-
-    // Main scroll handler with checkpoint logic
-    let isScrolling = false;
-    let targetVideoTime = 0;
-    
-    const handleScroll = () => {
-      if (isScrolling) return;
-      
-      const scrollY = window.scrollY;
-      const maxScroll = document.body.scrollHeight - window.innerHeight;
-      let scrollProgress = scrollY / maxScroll;
-      
-      // Clamp progress
-      scrollProgress = Math.min(Math.max(scrollProgress, 0), 1);
-      
-      // Map scroll progress to video time (0 to 5 seconds max)
-      // Video will play only up to 5 seconds total
-      const maxVideoTime = 5; // Total video duration we want to use
-      const targetTime = scrollProgress * maxVideoTime;
-      
-      // Smoothly interpolate video time
-      targetVideoTime = Math.min(Math.max(targetTime, 0), maxVideoTime);
-      
-      // Update video current time with smooth interpolation
-      if (video.duration && !isNaN(video.duration)) {
-        // Map our target time to actual video duration
-        const actualVideoTime = (targetVideoTime / maxVideoTime) * video.duration;
-        video.currentTime = actualVideoTime;
-        
-        // Update Theatre.js
-        obj.props.currentVideoTime = actualVideoTime;
-        obj.props.scrollProgress = scrollProgress;
-        
-        // Update active section
-        updateActiveSection(targetVideoTime);
-        
-        // Calculate section progress (0-1 between checkpoints)
-        let sectionProgress = 0;
-        if (targetVideoTime >= 0 && targetVideoTime < 3) {
-          sectionProgress = targetVideoTime / 3;
-        } else if (targetVideoTime >= 3 && targetVideoTime < 5) {
-          sectionProgress = 1 + (targetVideoTime - 3) / 2;
-        } else if (targetVideoTime >= 5) {
-          sectionProgress = 2;
-        }
-        obj.props.sectionProgress = sectionProgress;
-      }
-      
-      // Apply transform to section wrapper with smooth easing
-      const viewportHeight = window.innerHeight;
-      const sectionWrapperHeight = sectionWrapper.scrollHeight;
-      const scrollRange = -(sectionWrapperHeight - viewportHeight);
-      const targetY = scrollRange * scrollProgress;
-      
-      // Use GSAP for smooth transform
-      gsap.to(sectionWrapper, {
-        y: targetY,
-        duration: 0.1,
-        ease: "power2.out"
-      });
-    };
-
-    // Smooth scroll with GSAP ScrollTrigger for better control
-    ScrollTrigger.create({
-      trigger: document.body,
-      start: "top top",
-      end: "bottom bottom",
-      scrub: 0.5, // Smooth scrubbing with 0.5s lag
-      onUpdate: (self) => {
-        const progress = self.progress;
-        const maxVideoTime = 5;
-        const targetTime = progress * maxVideoTime;
-        
-        if (video.duration && !isNaN(video.duration)) {
-          const actualVideoTime = (targetTime / maxVideoTime) * video.duration;
-          
-          // Smooth video seeking
-          if (Math.abs(video.currentTime - actualVideoTime) > 0.01) {
-            video.currentTime = actualVideoTime;
-          }
-          
-          updateActiveSection(targetTime);
-        }
-        
-        // Smooth section wrapper movement
-        const viewportHeight = window.innerHeight;
-        const sectionWrapperHeight = sectionWrapper.scrollHeight;
-        const scrollRange = -(sectionWrapperHeight - viewportHeight);
-        const targetY = scrollRange * progress;
-        
-        gsap.to(sectionWrapper, {
-          y: targetY,
-          duration: 0.2,
-          ease: "power2.out"
-        });
-      }
-    });
-
-    // Throttled scroll handler
-    let ticking = false;
-    const throttledScroll = () => {
-      if (!ticking) {
-        requestAnimationFrame(() => {
-          handleScroll();
-          ticking = false;
-        });
-        ticking = true;
-      }
-    };
-    
-    // Handle video metadata loaded
-    const handleVideoLoaded = () => {
-      video.pause();
       video.currentTime = 0;
-      handleScroll();
+      video.play().catch(() => {});
     };
 
-    // Snap to nearest checkpoint when scrolling stops
-    let scrollTimeout;
-    const handleScrollEnd = () => {
-      clearTimeout(scrollTimeout);
-      scrollTimeout = setTimeout(() => {
-        const currentTime = video.currentTime;
-        const videoDuration = video.duration;
-        const maxVideoTime = 5;
-        const currentProgress = (currentTime / videoDuration) * maxVideoTime;
-        
-        // Find nearest checkpoint
-        let nearestCheckpoint = checkpoints[0];
-        let minDistance = Math.abs(currentProgress - checkpoints[0].videoTime);
-        
-        checkpoints.forEach(checkpoint => {
-          const distance = Math.abs(currentProgress - checkpoint.videoTime);
-          if (distance < minDistance) {
-            minDistance = distance;
-            nearestCheckpoint = checkpoint;
-          }
-        });
-        
-        // Snap to nearest checkpoint if within threshold
-        if (minDistance < 0.5) {
-          const targetVideoProgress = nearestCheckpoint.videoTime / maxVideoTime;
-          const targetScrollY = targetVideoProgress * (document.body.scrollHeight - window.innerHeight);
-          
-          window.scrollTo({
-            top: targetScrollY,
-            behavior: 'smooth'
-          });
-          
-          setActiveSection(nearestCheckpoint.id);
-        }
-      }, 150);
+    // ── Video ended → show sectionThree ──────────────────────────────────
+    const handleEnded = () => {
+      isPlayingRef.current = false;
+      setPhaseSync("sectionThree");
+      setSectionThreeVisible(true);
     };
-    
-    window.addEventListener("scroll", throttledScroll);
-    window.addEventListener("scrollend", handleScrollEnd);
-    video?.addEventListener("loadedmetadata", handleVideoLoaded);
-    
-    // Initialize GSAP animations for sections
-    gsap.fromTo("#sectionOne .glassCard", 
-      { opacity: 0, y: 50 },
-      { 
-        opacity: 1, 
-        y: 0, 
-        duration: 1,
-        stagger: 0.2,
-        scrollTrigger: {
-          trigger: "#sectionOne",
-          start: "top 80%",
-          end: "top 50%",
-          scrub: true
-        }
+
+    // ── Track progress for the indicator ─────────────────────────────────
+    const handleTimeUpdate = () => {
+      if (video.duration) {
+        setVideoProgress(video.currentTime / video.duration);
       }
-    );
-    
-    gsap.fromTo("#sectionTwo .glassCard",
-      { opacity: 0, x: -50 },
-      { 
-        opacity: 1, 
-        x: 0, 
-        duration: 1,
-        stagger: 0.2,
-        scrollTrigger: {
-          trigger: "#sectionTwo",
-          start: "top 80%",
-          end: "top 50%",
-          scrub: true
-        }
+    };
+
+    // ── Wheel / scroll handler ────────────────────────────────────────────
+    // • On sectionOne: accumulate wheel delta; once threshold hit → play video
+    // • While playing:  block scroll entirely
+    // • On sectionThree: allow normal (virtual) scroll — we restore body overflow
+    const TRIGGER_THRESHOLD = 80; // px of wheel delta needed to trigger
+
+    const handleWheel = (e) => {
+      if (phaseRef.current === "playing") {
+        e.preventDefault();
+        return;
       }
-    );
-    
-    gsap.fromTo("#sectionThree .glassCard",
-      { opacity: 0, scale: 0.8 },
-      { 
-        opacity: 1, 
-        scale: 1, 
-        duration: 1,
-        stagger: 0.2,
-        scrollTrigger: {
-          trigger: "#sectionThree",
-          start: "top 80%",
-          end: "top 50%",
-          scrub: true
+
+      if (phaseRef.current === "sectionOne") {
+        // Only trigger on downward scroll
+        if (e.deltaY > 0) {
+          wheelAccumRef.current += e.deltaY;
+          if (wheelAccumRef.current >= TRIGGER_THRESHOLD) {
+            wheelAccumRef.current = 0;
+            playVideo();
+          }
         }
+        e.preventDefault();
+        return;
       }
-    );
-    
-    handleScroll();
+
+      // sectionThree phase — allow natural scroll (don't preventDefault)
+    };
+
+    // Touch support
+    let touchStartY = 0;
+    const handleTouchStart = (e) => {
+      touchStartY = e.touches[0].clientY;
+    };
+    const handleTouchMove = (e) => {
+      if (phaseRef.current === "playing") {
+        e.preventDefault();
+        return;
+      }
+      if (phaseRef.current === "sectionOne") {
+        const delta = touchStartY - e.touches[0].clientY;
+        if (delta > 30) {
+          playVideo();
+        }
+        e.preventDefault();
+      }
+    };
+
+    video.addEventListener("ended", handleEnded);
+    video.addEventListener("timeupdate", handleTimeUpdate);
+    window.addEventListener("wheel", handleWheel, { passive: false });
+    window.addEventListener("touchstart", handleTouchStart, { passive: true });
+    window.addEventListener("touchmove", handleTouchMove, { passive: false });
 
     return () => {
-      window.removeEventListener("scroll", throttledScroll);
-      window.removeEventListener("scrollend", handleScrollEnd);
-      video?.removeEventListener("loadedmetadata", handleVideoLoaded);
-      ScrollTrigger.getAll().forEach(trigger => trigger.kill());
+      document.body.style.overflow = "";
+      document.body.style.height = "";
+      video.removeEventListener("ended", handleEnded);
+      video.removeEventListener("timeupdate", handleTimeUpdate);
+      window.removeEventListener("wheel", handleWheel);
+      window.removeEventListener("touchstart", handleTouchStart);
+      window.removeEventListener("touchmove", handleTouchMove);
     };
   }, []);
 
+  // When sectionThree is reached, unlock body scroll
+  useEffect(() => {
+    if (phase === "sectionThree") {
+      document.body.style.overflow = "";
+      document.body.style.height = "";
+    }
+  }, [phase]);
+
   return (
-    <>
-      <div className="mainScrollingWrapper">
-        <div className="backgroundVideo">
-          <video 
-            ref={videoRef}
-            src="https://files.mastersunion.link/uploads/04062026/v1/newVideo.mp4" 
-            preload="auto"
-            muted
-            playsInline
+    <div className="mainScrollingWrapper">
+      {/* ── Fixed background video ── */}
+      <div className="backgroundVideo">
+        <video
+          ref={videoRef}
+          src="https://files.mastersunion.link/uploads/04062026/v1/newVideo.mp4"
+          preload="auto"
+          muted
+          playsInline
+        />
+      </div>
+
+      {/* ── Progress bar (visible only while playing) ── */}
+      {phase === "playing" && (
+        <div className="videoProgressBar">
+          <div
+            className="videoProgressFill"
+            style={{ width: `${videoProgress * 100}%` }}
           />
         </div>
+      )}
 
-        {/* Progress indicator */}
-        <div className="progress-indicator">
-          <div className="checkpoints">
-            {checkpoints.map((checkpoint, index) => (
-              <div 
-                key={checkpoint.id}
-                className={`checkpoint ${activeSection === checkpoint.id ? 'active' : ''}`}
-                data-label={checkpoint.label}
-              >
-                <div className="checkpoint-dot"></div>
-                <span className="checkpoint-time">{checkpoint.videoTime}s</span>
-              </div>
-            ))}
+      {/* ── Scroll hint (visible on sectionOne) ── */}
+      {phase === "sectionOne" && (
+        <div className="scrollHint">
+          <span>Scroll down to begin</span>
+          <div className="scrollHintArrow" />
+        </div>
+      )}
+
+      {/* ── Section One ── */}
+      <section
+        className={`hero fixed-section ${phase === "sectionOne" ? "visible" : "hidden"}`}
+        id="sectionOne"
+      >
+        <div className="container">
+          <div className="innerWrapper">
+            <h1>Section 1 — Start</h1>
+            <p className="section-description">Scroll down to play the video</p>
+            <div className="glassCardsWrapper">
+              {["Card 1", "Card 2", "Card 3"].map((card, i) => (
+                <div className="glassCard" key={i}>
+                  <h2>{card}</h2>
+                  <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
+      </section>
 
-        <div className="sectionWrapper" ref={sectionWrapperRef}>
-          <section className="hero" id="sectionOne">
-            <div className="container">
-              <div className="innerWrapper">
-                <h1>Section 1 - Start</h1>
-                <p className="section-description">Video plays from 0s to 3s</p>
-
-                <div className="glassCardsWrapper">
-                  <div className="glassCard">
-                    <h2>Card 1</h2>
-                    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
-                  </div>
-
-                  <div className="glassCard">
-                    <h2>Card 2</h2>
-                    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
-                  </div>
-
-                  <div className="glassCard">
-                    <h2>Card 3</h2>
-                    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
-                  </div>
+      {/* ── Section Three (appears after video) ── */}
+      <section
+        className={`hero ${sectionThreeVisible ? "sectionThree-enter" : "sectionThree-hidden"}`}
+        id="sectionThree"
+        style={{
+          position: sectionThreeVisible ? "relative" : "fixed",
+          // keep it off-screen until revealed
+          top: sectionThreeVisible ? "auto" : "100vh",
+        }}
+      >
+        <div className="container">
+          <div className="innerWrapper">
+            <h1>Section 3 — Final Checkpoint</h1>
+            <p className="section-description">Video has finished playing</p>
+            <div className="glassCardsWrapper">
+              {["Card 1", "Card 2", "Card 3"].map((card, i) => (
+                <div className="glassCard" key={i}>
+                  <h2>{card}</h2>
+                  <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
                 </div>
-              </div>
+              ))}
             </div>
-          </section>
-
-          <section className="hero" id="sectionTwo">
-            <div className="container">
-              <div className="innerWrapper">
-                <h1>Section 2 - First Checkpoint</h1>
-                <p className="section-description">Video reaches 3s mark</p>
-
-                <div className="glassCardsWrapper">
-                  <div className="glassCard">
-                    <h2>Card 1</h2>
-                    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
-                  </div>
-
-                  <div className="glassCard">
-                    <h2>Card 2</h2>
-                    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
-                  </div>
-
-                  <div className="glassCard">
-                    <h2>Card 3</h2>
-                    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section className="hero" id="sectionThree">
-            <div className="container">
-              <div className="innerWrapper">
-                <h1>Section 3 - Final Checkpoint</h1>
-                <p className="section-description">Video reaches 5s mark</p>
-
-                <div className="glassCardsWrapper">
-                  <div className="glassCard">
-                    <h2>Card 1</h2>
-                    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
-                  </div>
-
-                  <div className="glassCard">
-                    <h2>Card 2</h2>
-                    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
-                  </div>
-
-                  <div className="glassCard">
-                    <h2>Card 3</h2>
-                    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
+          </div>
         </div>
-      </div>
-    </>
+      </section>
+    </div>
   );
 }
