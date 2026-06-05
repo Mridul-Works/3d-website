@@ -1,20 +1,52 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./herosection.css";
 
+// ── Speed-ramp curve ──────────────────────────────────────────────────────────
+// Smooth-step interpolation across 5 keyframe anchors [position, rate].
+// • 0%   → 1.6×  energetic opening burst
+// • 30%  → 1.1×  quick settle
+// • 60%  → 1.0×  cruise
+// • 82%  → 0.85× deceleration begins
+// • 100% → 0.6×  cinematic landing
+function getPlaybackRate(progress) {
+  const kf = [
+    [0.0,  1.6],
+    [0.3,  1.1],
+    [0.6,  1.0],
+    [0.82, 0.85],
+    [1.0,  0.6],
+  ];
+
+  if (progress <= kf[0][0]) return kf[0][1];
+  if (progress >= kf[kf.length - 1][0]) return kf[kf.length - 1][1];
+
+  for (let i = 0; i < kf.length - 1; i++) {
+    const [p0, r0] = kf[i];
+    const [p1, r1] = kf[i + 1];
+    if (progress >= p0 && progress <= p1) {
+      const t = (progress - p0) / (p1 - p0);
+      const s = t * t * (3 - 2 * t); // smoothstep
+      return r0 + (r1 - r0) * s;
+    }
+  }
+  return 1.0;
+}
+
 export default function HeroSection() {
-  const videoRef = useRef(null);
-  const [phase, setPhase] = useState("sectionOne"); // "sectionOne" | "playing" | "sectionThree"
-  const [videoProgress, setVideoProgress] = useState(0);
+  const videoRef        = useRef(null);
+  const phaseRef        = useRef("sectionOne");
+  const rafRef          = useRef(null);
+  const wheelAccumRef   = useRef(0);
+  const isPlayingRef    = useRef(false);
+
+  const [phase, setPhase]                     = useState("sectionOne");
+  const [videoProgress, setVideoProgress]     = useState(0);
   const [sectionThreeVisible, setSectionThreeVisible] = useState(false);
 
-  // Accumulated wheel delta — we use this to decide when to "trigger" the video
-  const wheelAccumRef = useRef(0);
-  const isPlayingRef = useRef(false);
-  const phaseRef = useRef("sectionOne");
-
-  const setPhaseSync = (p) => {
+  // Keep phase state + ref in sync from one place
+  const applyPhase = (p) => {
     phaseRef.current = p;
     setPhase(p);
   };
@@ -23,51 +55,79 @@ export default function HeroSection() {
     const video = videoRef.current;
     if (!video) return;
 
-    // Lock body scroll entirely
+    // Lock scroll while in sectionOne / playing
     document.body.style.overflow = "hidden";
-    document.body.style.height = "100vh";
+    document.body.style.height   = "100vh";
 
     video.pause();
     video.currentTime = 0;
 
-    // ── Play the video straight through ──────────────────────────────────
-    const playVideo = () => {
-      if (isPlayingRef.current) return;
-      isPlayingRef.current = true;
-      setPhaseSync("playing");
-
-      video.currentTime = 0;
-      video.play().catch(() => {});
-    };
-
-    // ── Video ended → show sectionThree ──────────────────────────────────
-    const handleEnded = () => {
-      isPlayingRef.current = false;
-      setPhaseSync("sectionThree");
-      setSectionThreeVisible(true);
-    };
-
-    // ── Track progress for the indicator ─────────────────────────────────
-    const handleTimeUpdate = () => {
-      if (video.duration) {
-        setVideoProgress(video.currentTime / video.duration);
+    // ── rAF loop: drives playbackRate + progress bar ──────────────────────
+    const stopLoop = () => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
       }
     };
 
-    // ── Wheel / scroll handler ────────────────────────────────────────────
-    // • On sectionOne: accumulate wheel delta; once threshold hit → play video
-    // • While playing:  block scroll entirely
-    // • On sectionThree: allow normal (virtual) scroll — we restore body overflow
-    const TRIGGER_THRESHOLD = 80; // px of wheel delta needed to trigger
+    const startLoop = () => {
+      stopLoop();
+      const tick = () => {
+        if (video.duration && !video.ended) {
+          const progress = video.currentTime / video.duration;
+          video.playbackRate = getPlaybackRate(progress);
+          setVideoProgress(progress);
+        }
+        // Keep looping as long as we are in the playing phase
+        if (phaseRef.current === "playing") {
+          rafRef.current = requestAnimationFrame(tick);
+        }
+      };
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    // ── Trigger playback ──────────────────────────────────────────────────
+    const playVideo = () => {
+      if (isPlayingRef.current) return;
+      isPlayingRef.current = true;
+
+      video.currentTime = 0;
+      video.playbackRate = getPlaybackRate(0);
+
+      // applyPhase must happen before startLoop so phaseRef is "playing"
+      applyPhase("playing");
+      startLoop();
+
+      video.play().catch(() => {
+        // Autoplay blocked — reset gracefully
+        stopLoop();
+        isPlayingRef.current = false;
+        applyPhase("sectionOne");
+      });
+    };
+
+    // ── Video ended ───────────────────────────────────────────────────────
+    const handleEnded = () => {
+      stopLoop();
+      video.playbackRate = 1.0;
+      isPlayingRef.current = false;
+      applyPhase("sectionThree");
+      setSectionThreeVisible(true);
+    };
+
+    // ── Wheel handler ─────────────────────────────────────────────────────
+    const TRIGGER_THRESHOLD = 80;
 
     const handleWheel = (e) => {
-      if (phaseRef.current === "playing") {
+      const current = phaseRef.current;
+
+      if (current === "playing") {
         e.preventDefault();
         return;
       }
 
-      if (phaseRef.current === "sectionOne") {
-        // Only trigger on downward scroll
+      if (current === "sectionOne") {
+        e.preventDefault();
         if (e.deltaY > 0) {
           wheelAccumRef.current += e.deltaY;
           if (wheelAccumRef.current >= TRIGGER_THRESHOLD) {
@@ -75,59 +135,61 @@ export default function HeroSection() {
             playVideo();
           }
         }
-        e.preventDefault();
         return;
       }
 
-      // sectionThree phase — allow natural scroll (don't preventDefault)
+      // sectionThree — allow natural scroll
     };
 
-    // Touch support
+    // ── Touch handler ─────────────────────────────────────────────────────
     let touchStartY = 0;
+
     const handleTouchStart = (e) => {
       touchStartY = e.touches[0].clientY;
     };
+
     const handleTouchMove = (e) => {
-      if (phaseRef.current === "playing") {
+      const current = phaseRef.current;
+      if (current === "playing") {
         e.preventDefault();
         return;
       }
-      if (phaseRef.current === "sectionOne") {
-        const delta = touchStartY - e.touches[0].clientY;
-        if (delta > 30) {
+      if (current === "sectionOne") {
+        e.preventDefault();
+        if (touchStartY - e.touches[0].clientY > 30) {
           playVideo();
         }
-        e.preventDefault();
       }
     };
 
     video.addEventListener("ended", handleEnded);
-    video.addEventListener("timeupdate", handleTimeUpdate);
-    window.addEventListener("wheel", handleWheel, { passive: false });
-    window.addEventListener("touchstart", handleTouchStart, { passive: true });
-    window.addEventListener("touchmove", handleTouchMove, { passive: false });
+    window.addEventListener("wheel",       handleWheel,      { passive: false });
+    window.addEventListener("touchstart",  handleTouchStart, { passive: true  });
+    window.addEventListener("touchmove",   handleTouchMove,  { passive: false });
 
     return () => {
+      stopLoop();
       document.body.style.overflow = "";
-      document.body.style.height = "";
+      document.body.style.height   = "";
       video.removeEventListener("ended", handleEnded);
-      video.removeEventListener("timeupdate", handleTimeUpdate);
-      window.removeEventListener("wheel", handleWheel);
+      window.removeEventListener("wheel",      handleWheel);
       window.removeEventListener("touchstart", handleTouchStart);
-      window.removeEventListener("touchmove", handleTouchMove);
+      window.removeEventListener("touchmove",  handleTouchMove);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // When sectionThree is reached, unlock body scroll
+  // Unlock scroll once sectionThree is active
   useEffect(() => {
     if (phase === "sectionThree") {
       document.body.style.overflow = "";
-      document.body.style.height = "";
+      document.body.style.height   = "";
     }
   }, [phase]);
 
   return (
     <div className="mainScrollingWrapper">
+
       {/* ── Fixed background video ── */}
       <div className="backgroundVideo">
         <video
@@ -136,10 +198,11 @@ export default function HeroSection() {
           preload="auto"
           muted
           playsInline
+          style={{ willChange: "transform", transform: "translateZ(0)" }}
         />
       </div>
 
-      {/* ── Progress bar (visible only while playing) ── */}
+      {/* ── Progress bar (playing only) ── */}
       {phase === "playing" && (
         <div className="videoProgressBar">
           <div
@@ -149,7 +212,7 @@ export default function HeroSection() {
         </div>
       )}
 
-      {/* ── Scroll hint (visible on sectionOne) ── */}
+      {/* ── Scroll hint (sectionOne only) ── */}
       {phase === "sectionOne" && (
         <div className="scrollHint">
           <span>Scroll down to begin</span>
@@ -178,14 +241,13 @@ export default function HeroSection() {
         </div>
       </section>
 
-      {/* ── Section Three (appears after video) ── */}
+      {/* ── Section Three (revealed after video ends) ── */}
       <section
         className={`hero ${sectionThreeVisible ? "sectionThree-enter" : "sectionThree-hidden"}`}
         id="sectionThree"
         style={{
           position: sectionThreeVisible ? "relative" : "fixed",
-          // keep it off-screen until revealed
-          top: sectionThreeVisible ? "auto" : "100vh",
+          top:      sectionThreeVisible ? "auto"     : "100vh",
         }}
       >
         <div className="container">
@@ -203,6 +265,7 @@ export default function HeroSection() {
           </div>
         </div>
       </section>
+
     </div>
   );
 }
